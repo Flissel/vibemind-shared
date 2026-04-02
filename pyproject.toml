@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vibemind-shared"
+version = "0.1.0"
+description = "Shared LLM client factory for VibeMind OS ecosystem"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [{name = "Felix Baumann"}]
+dependencies = [
+    "openai>=1.0.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.20.0"]
+all = ["anthropic>=0.20.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
