@@ -1,0 +1,340 @@
+"""
+Smoke tests for vibemind_shared LLM factory.
+
+These tests don't make real API calls — they verify the factory:
+  - Loads llm_config.yml correctly
+  - Resolves roles → provider config
+  - Returns the right client class
+  - Falls back to default for unknown roles
+  - Handles overrides
+  - Returns embedding configs
+
+Run:
+    cd vibemind-os && python -m pytest shared/tests/test_factory.py -v
+"""
+from __future__ import annotations
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+import pytest
+
+# Make vibemind_shared importable from the source tree
+SHARED_SRC = Path(__file__).parent.parent / "src"
+sys.path.insert(0, str(SHARED_SRC))
+
+
+# A minimal config used by all tests
+TEST_CONFIG = """
+keys:
+  openai: ${TEST_OPENAI_KEY}
+  anthropic: ${TEST_ANTHROPIC_KEY}
+  ollama: null
+
+providers:
+  openai:
+    type: openai
+    base_url: https://api.openai.com/v1
+    key_ref: openai
+  anthropic:
+    type: anthropic
+    base_url: https://api.anthropic.com
+    key_ref: anthropic
+  ollama:
+    type: openai
+    base_url: http://127.0.0.1:11434/v1
+    key_ref: null
+
+default:
+  provider: ollama
+  model: qwen2.5:7b
+  temperature: 0
+
+roles:
+  coding_planner:
+    provider: anthropic
+    model: claude-sonnet-4-5
+    temperature: 0.7
+  fast_local:
+    provider: ollama
+    model: qwen2.5:3b
+    temperature: 0
+  voice_realtime:
+    provider: openai
+    model: gpt-4o-realtime-preview
+    temperature: 0.8
+
+overrides:
+  the_brain:
+    coding_planner:
+      provider: openai
+      model: gpt-4o
+
+embeddings:
+  default:
+    driver: sentence_transformers
+    model: all-MiniLM-L6-v2
+    dim: 384
+  openai_large:
+    driver: openai
+    provider: openai
+    model: text-embedding-3-large
+    dim: 3072
+"""
+
+
+@pytest.fixture(autouse=True)
+def setup_test_config(tmp_path, monkeypatch):
+    """Write a temp config file and point VIBEMIND_CONFIG_DIR at it."""
+    config_path = tmp_path / "llm_config.yml"
+    config_path.write_text(TEST_CONFIG, encoding="utf-8")
+    monkeypatch.setenv("VIBEMIND_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("TEST_OPENAI_KEY", "sk-test-openai")
+    monkeypatch.setenv("TEST_ANTHROPIC_KEY", "sk-ant-test")
+
+    # Clear the lru_cache so each test gets a fresh load
+    from vibemind_shared import llm_client
+    llm_client._load_config.cache_clear()
+    yield
+    llm_client._load_config.cache_clear()
+
+
+def test_imports():
+    """All public symbols are importable."""
+    from vibemind_shared import (
+        get_client,
+        get_client_sync,
+        get_config,
+        get_model,
+        get_provider_info,
+        get_temperature,
+        get_embedding_model,
+        get_embedding_config,
+        get_embedding_dim,
+    )
+    assert callable(get_client)
+    assert callable(get_embedding_model)
+
+
+def test_load_config():
+    from vibemind_shared import get_config
+    cfg = get_config()
+    assert "providers" in cfg
+    assert "openai" in cfg["providers"]
+    assert "anthropic" in cfg["providers"]
+    assert "ollama" in cfg["providers"]
+
+
+def test_default_role():
+    from vibemind_shared import get_model, get_temperature, get_provider_info
+    assert get_model("default") == "qwen2.5:7b"
+    assert get_temperature("default") == 0
+    info = get_provider_info("default")
+    assert info["provider"] == "ollama"
+    assert info["type"] == "openai"
+
+
+def test_known_role():
+    from vibemind_shared import get_model, get_provider_info
+    assert get_model("coding_planner") == "claude-sonnet-4-5"
+    info = get_provider_info("coding_planner")
+    assert info["provider"] == "anthropic"
+    assert info["type"] == "anthropic"
+
+
+def test_unknown_role_falls_back_to_default():
+    from vibemind_shared import get_model, get_provider_info
+    # Unknown role should use default provider+model
+    assert get_model("nonexistent_role_xyz") == "qwen2.5:7b"
+    info = get_provider_info("nonexistent_role_xyz")
+    assert info["provider"] == "ollama"
+
+
+def test_directory_override():
+    from vibemind_shared import get_model, get_provider_info
+    # the_brain dir overrides coding_planner to openai/gpt-4o
+    assert get_model("coding_planner", directory="the_brain") == "gpt-4o"
+    info = get_provider_info("coding_planner", directory="the_brain")
+    assert info["provider"] == "openai"
+
+
+def test_override_does_not_affect_other_dirs():
+    from vibemind_shared import get_model
+    # Without directory, original config applies
+    assert get_model("coding_planner") == "claude-sonnet-4-5"
+    # Different directory, no override → original
+    assert get_model("coding_planner", directory="other_dir") == "claude-sonnet-4-5"
+
+
+def test_get_client_anthropic():
+    """Anthropic role returns AsyncAnthropic instance."""
+    pytest.importorskip("anthropic")
+    from vibemind_shared import get_client
+    client = get_client("coding_planner")
+    # Should be an anthropic.AsyncAnthropic
+    cls_name = client.__class__.__name__
+    assert "Anthropic" in cls_name
+
+
+def test_get_client_openai():
+    """OpenAI/Ollama role returns AsyncOpenAI."""
+    pytest.importorskip("openai")
+    from vibemind_shared import get_client
+    client = get_client("fast_local")  # ollama
+    cls_name = client.__class__.__name__
+    assert "OpenAI" in cls_name
+
+
+def test_get_client_sync():
+    pytest.importorskip("openai")
+    from vibemind_shared import get_client_sync
+    client = get_client_sync("voice_realtime")
+    cls_name = client.__class__.__name__
+    assert "OpenAI" in cls_name
+
+
+def test_embedding_default():
+    from vibemind_shared import get_embedding_config, get_embedding_dim
+    cfg = get_embedding_config("default")
+    assert cfg["model"] == "all-MiniLM-L6-v2"
+    assert cfg["dim"] == 384
+    assert get_embedding_dim("default") == 384
+
+
+def test_embedding_openai_large():
+    from vibemind_shared import get_embedding_config
+    cfg = get_embedding_config("openai_large")
+    assert cfg["driver"] == "openai"
+    assert cfg["provider"] == "openai"
+    assert cfg["dim"] == 3072
+
+
+def test_embedding_unknown_role_falls_back():
+    from vibemind_shared import get_embedding_config
+    # Unknown role → default
+    cfg = get_embedding_config("nonexistent_emb")
+    assert cfg["model"] == "all-MiniLM-L6-v2"
+
+
+def test_env_var_resolution():
+    """Keys are resolved from env vars at lookup time."""
+    from vibemind_shared.llm_client import _get_api_key
+    assert _get_api_key("openai") == "sk-test-openai"
+    assert _get_api_key("anthropic") == "sk-ant-test"
+    # ollama has key_ref=null
+    assert _get_api_key("ollama") == ""
+
+
+# =============================================================================
+# Pricing / cost tracking tests
+# =============================================================================
+
+PRICING_FIXTURE = """
+gpt-4o:
+  provider: openai
+  input: 2.50
+  output: 10.00
+gpt-4o-mini:
+  provider: openai
+  input: 0.15
+  output: 0.60
+claude-sonnet-4-5:
+  provider: anthropic
+  input: 3.00
+  output: 15.00
+"qwen2.5:7b":
+  provider: ollama
+  input: 0
+  output: 0
+"""
+
+
+@pytest.fixture
+def pricing_fixture(tmp_path, monkeypatch):
+    """Write a temp pricing file alongside the test config."""
+    pricing_path = tmp_path / "models_pricing.yml"
+    pricing_path.write_text(PRICING_FIXTURE, encoding="utf-8")
+    # tmp_path already pointed to by VIBEMIND_CONFIG_DIR via setup_test_config
+    from vibemind_shared import pricing
+    pricing._load_pricing.cache_clear()
+    yield
+    pricing._load_pricing.cache_clear()
+
+
+def test_pricing_load(pricing_fixture):
+    from vibemind_shared import get_pricing
+    p = get_pricing("gpt-4o")
+    assert p["input"] == 2.50
+    assert p["output"] == 10.00
+    assert p["provider"] == "openai"
+
+
+def test_pricing_unknown_model(pricing_fixture):
+    from vibemind_shared import get_pricing
+    p = get_pricing("nonexistent-model-xyz")
+    assert p == {}
+
+
+def test_estimate_cost_basic(pricing_fixture):
+    from vibemind_shared import estimate_cost
+    # 1M input + 1M output of gpt-4o
+    cost = estimate_cost("gpt-4o", 1_000_000, 1_000_000)
+    assert cost == 12.50  # 2.50 + 10.00
+
+    # 100k input + 50k output
+    cost = estimate_cost("gpt-4o", 100_000, 50_000)
+    assert abs(cost - (0.25 + 0.50)) < 1e-6
+
+
+def test_estimate_cost_local_is_zero(pricing_fixture):
+    from vibemind_shared import estimate_cost
+    cost = estimate_cost("qwen2.5:7b", 1_000_000, 1_000_000)
+    assert cost == 0.0
+
+
+def test_estimate_cost_unknown_is_zero(pricing_fixture):
+    from vibemind_shared import estimate_cost
+    cost = estimate_cost("nonexistent-model", 1_000_000, 1_000_000)
+    assert cost == 0.0
+
+
+def test_is_local(pricing_fixture):
+    from vibemind_shared import is_local
+    assert is_local("qwen2.5:7b") is True
+    assert is_local("gpt-4o") is False
+    assert is_local("claude-sonnet-4-5") is False
+
+
+def test_log_call_and_summarize(pricing_fixture, tmp_path):
+    from vibemind_shared import log_call, summarize_costs
+
+    log_path = str(tmp_path / "test_costs.jsonl")
+
+    # Log 3 calls
+    log_call("coding_planner", "claude-sonnet-4-5", 1000, 500, log_path=log_path)
+    log_call("coding_planner", "claude-sonnet-4-5", 2000, 1000, log_path=log_path)
+    log_call("voice_realtime", "gpt-4o", 500, 100, log_path=log_path)
+
+    summary = summarize_costs(log_path=log_path)
+    assert summary["total_calls"] == 3
+    # claude-sonnet-4-5: (3000/1M * 3.00) + (1500/1M * 15.00) = 0.009 + 0.0225 = 0.0315
+    # gpt-4o: (500/1M * 2.50) + (100/1M * 10.00) = 0.00125 + 0.001 = 0.00225
+    expected_total = 0.0315 + 0.00225
+    assert abs(summary["total_usd"] - expected_total) < 1e-4
+
+    assert "coding_planner" in summary["by_role"]
+    assert "voice_realtime" in summary["by_role"]
+    assert summary["by_role"]["coding_planner"] > summary["by_role"]["voice_realtime"]
+
+
+def test_log_call_local_is_free(pricing_fixture, tmp_path):
+    from vibemind_shared import log_call
+
+    log_path = str(tmp_path / "local_costs.jsonl")
+    entry = log_call("local_default", "qwen2.5:7b", 100_000, 50_000, log_path=log_path)
+    assert entry["cost_usd"] == 0.0
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-v"]))
