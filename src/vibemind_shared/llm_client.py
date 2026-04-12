@@ -191,3 +191,93 @@ def get_provider_info(role: str = "default", directory: str = "") -> dict:
         "base_url": _get_base_url(provider_name),
         "type": _get_provider_type(provider_name),
     }
+
+
+# =============================================================================
+# Embedding Models — resolved from the `embeddings:` section of llm_config.yml
+# =============================================================================
+
+def _resolve_embedding_role(role: str = "default") -> dict:
+    """Resolve an embedding role to its config dict."""
+    cfg = _load_config()
+    embeddings = cfg.get("embeddings", {})
+    if not embeddings:
+        # Fallback to a sensible default
+        return {"driver": "sentence_transformers", "model": "all-MiniLM-L6-v2", "dim": 384}
+    if role in embeddings:
+        return dict(embeddings[role])
+    if "default" in embeddings:
+        return dict(embeddings["default"])
+    # Last resort: pick the first entry
+    first_key = next(iter(embeddings))
+    return dict(embeddings[first_key])
+
+
+def get_embedding_config(role: str = "default") -> dict:
+    """Return the raw embedding config for a role (driver, model, dim, ...)."""
+    return _resolve_embedding_role(role)
+
+
+def get_embedding_model(role: str = "default", device: str = "auto"):
+    """Return a loaded embedding model for the given role.
+
+    Returns an object with `.encode(texts)` method, regardless of driver.
+    Drivers:
+      sentence_transformers → SentenceTransformer instance
+      openai                → small wrapper that calls /embeddings endpoint
+      ollama                → small wrapper that calls /v1/embeddings endpoint
+    """
+    resolved = _resolve_embedding_role(role)
+    driver = resolved.get("driver", "sentence_transformers")
+    model_name = resolved.get("model", "all-MiniLM-L6-v2")
+
+    if driver == "sentence_transformers":
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError:
+            raise ImportError(
+                "sentence-transformers not installed. "
+                "Run: pip install sentence-transformers"
+            )
+        # Resolve device
+        if device == "auto":
+            try:
+                import torch
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+            except ImportError:
+                device = "cpu"
+        return SentenceTransformer(model_name, device=device)
+
+    if driver in ("openai", "ollama"):
+        # Return a thin wrapper that exposes .encode(texts)
+        provider_name = resolved.get("provider", driver)
+        client = get_client_sync(role="default")  # use default client for endpoint
+        # Override the client with the embedding-specific provider
+        cfg = _load_config()
+        provider = cfg.get("providers", {}).get(provider_name, {})
+        from openai import OpenAI
+        api_key = _get_api_key(provider_name) or "not-needed"
+        base_url = provider.get("base_url", "https://api.openai.com/v1")
+        emb_client = OpenAI(api_key=api_key, base_url=base_url)
+
+        class _EmbeddingWrapper:
+            def __init__(self, client, model):
+                self._c = client
+                self._m = model
+
+            def encode(self, texts, **kwargs):
+                if isinstance(texts, str):
+                    texts = [texts]
+                resp = self._c.embeddings.create(model=self._m, input=texts)
+                import numpy as np
+                return np.array([d.embedding for d in resp.data], dtype=np.float32)
+
+        return _EmbeddingWrapper(emb_client, model_name)
+
+    raise ValueError(f"Unknown embedding driver: {driver}")
+
+
+def get_embedding_dim(role: str = "default") -> int:
+    """Return the embedding dimension for a role (from config, no model load)."""
+    resolved = _resolve_embedding_role(role)
+    return int(resolved.get("dim", 384))
