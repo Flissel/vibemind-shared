@@ -1,0 +1,39 @@
+# Memory profile filters for vibemind_shared.load_memory()
+# Each profile selects which memory files are included for an agent's system prompt.
+
+profiles:
+  full:
+    types: [user, feedback, project, reference]
+    include: ["*"]
+    exclude: []
+
+  coding:
+    types: [user, feedback, project]
+    include: ["*"]
+    exclude: ["feedback_default_workdir"]
+
+  desktop:
+    types: [user, feedback]
+    include: ["user_profile", "user_voice_writing_style", "feedback_never_do"]
+    exclude: []
+
+  hr:
+    types: [user]
+    include: ["user_profile", "user_voice_writing_style"]
+    exclude: []
+
+  minimal:
+    types: [user]
+    include: ["user_profile"]
+    exclude: []
+
+# Depth for [[name]] link resolution inside memory bodies (1 = inline referenced file once)
+link_depth: 1
+
+# Soft cap per profile in approx tokens (~4 chars/token). Truncates from tail when exceeded.
+token_budget:
+  full: 8000
+  coding: 4000
+  desktop: 2000
+  hr: 2000
+  minimal: 1000

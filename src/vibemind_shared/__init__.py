@@ -18,8 +18,13 @@ from .pricing import (
     log_call,
     summarize_costs,
 )
+from .memory_loader import (
+    load_memory,
+    clear_memory_cache,
+    MemoryLoadError,
+)
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 __all__ = [
     "get_client",
     "get_client_sync",
@@ -35,4 +40,7 @@ __all__ = [
     "is_local",
     "log_call",
     "summarize_costs",
+    "load_memory",
+    "clear_memory_cache",
+    "MemoryLoadError",
 ]
