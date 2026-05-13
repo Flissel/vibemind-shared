@@ -23,6 +23,20 @@ from .memory_loader import (
     clear_memory_cache,
     MemoryLoadError,
 )
+from .memory_rag_sync import (
+    sync_memory_to_rowboat,
+    RowboatSyncError,
+)
+from .memory_writer import (
+    propose_memory_diff,
+    list_pending,
+    rewrite_pending,
+)
+from .memory_qdrant_sync import (
+    sync_memory_to_qdrant,
+    search_memory,
+    QdrantSyncError,
+)
 
 __version__ = "0.4.0"
 __all__ = [
@@ -43,4 +57,12 @@ __all__ = [
     "load_memory",
     "clear_memory_cache",
     "MemoryLoadError",
+    "sync_memory_to_rowboat",
+    "RowboatSyncError",
+    "propose_memory_diff",
+    "list_pending",
+    "rewrite_pending",
+    "sync_memory_to_qdrant",
+    "search_memory",
+    "QdrantSyncError",
 ]
