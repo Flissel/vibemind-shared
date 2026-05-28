@@ -37,8 +37,22 @@ from .memory_qdrant_sync import (
     search_memory,
     QdrantSyncError,
 )
+from .paths import (
+    repo_root,
+    vibemind_os,
+    openfang_dir,
+    openfang_agents_dir,
+    issue_inbox,
+    rowboat_knowledge,
+    rowboat_home,
+    downloads_dir,
+    fungus_cache,
+    brain_dir,
+    shared_dir,
+    config_dir,
+)
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 __all__ = [
     "get_client",
     "get_client_sync",
@@ -65,4 +79,16 @@ __all__ = [
     "sync_memory_to_qdrant",
     "search_memory",
     "QdrantSyncError",
+    "repo_root",
+    "vibemind_os",
+    "openfang_dir",
+    "openfang_agents_dir",
+    "issue_inbox",
+    "rowboat_knowledge",
+    "rowboat_home",
+    "downloads_dir",
+    "fungus_cache",
+    "brain_dir",
+    "shared_dir",
+    "config_dir",
 ]
