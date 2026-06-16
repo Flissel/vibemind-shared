@@ -7,3 +7,7 @@ build/
 .env
 .venv/
 *.db
+
+# Graphify code-graph output (local dev tool, ~MB) — rebuilt via `graphify update .`, never commit.
+graphify-out/
+.graphifyignore
