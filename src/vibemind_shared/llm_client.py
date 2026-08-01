@@ -29,9 +29,53 @@ from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    AsyncOpenAI,
+    InternalServerError,
+    OpenAI,
+    RateLimitError,
+)
 
 # Load .env from CWD (each repo keeps its own .env)
 load_dotenv()
+
+
+class OpenFangUnavailable(RuntimeError):
+    """OpenFang exhausted its bounded retry window for an LLM request."""
+
+
+_OPENFANG_TRANSIENT_ERRORS = (
+    APIConnectionError,
+    APITimeoutError,
+    RateLimitError,
+    InternalServerError,
+)
+
+
+class AsyncOpenFangClient(AsyncOpenAI):
+    """Async OpenAI-compatible client that fails closed after SDK retries."""
+
+    async def request(self, *args, **kwargs):
+        try:
+            return await super().request(*args, **kwargs)
+        except _OPENFANG_TRANSIENT_ERRORS as exc:
+            raise OpenFangUnavailable(
+                "OpenFang unreachable — LLM calls suspended"
+            ) from exc
+
+
+class OpenFangClient(OpenAI):
+    """Sync OpenAI-compatible client that fails closed after SDK retries."""
+
+    def request(self, *args, **kwargs):
+        try:
+            return super().request(*args, **kwargs)
+        except _OPENFANG_TRANSIENT_ERRORS as exc:
+            raise OpenFangUnavailable(
+                "OpenFang unreachable — LLM calls suspended"
+            ) from exc
 
 
 def _find_config() -> Path:
@@ -129,6 +173,41 @@ def _get_provider_type(provider_name: str) -> str:
     return provider.get("type", "openai")
 
 
+def _get_provider_runtime(provider_name: str) -> dict:
+    """Return validated transport options for a configured provider."""
+    cfg = _load_config()
+    provider = cfg.get("providers", {}).get(provider_name, {})
+    fail_closed = provider.get("fail_closed") is True
+
+    runtime = {"fail_closed": fail_closed}
+    if "max_retries" in provider:
+        max_retries = int(provider["max_retries"])
+        if not 0 <= max_retries <= 10:
+            raise ValueError("provider max_retries must be between 0 and 10")
+        runtime["max_retries"] = max_retries
+    if "timeout_seconds" in provider:
+        timeout_seconds = float(provider["timeout_seconds"])
+        if timeout_seconds <= 0:
+            raise ValueError("provider timeout_seconds must be positive")
+        runtime["timeout_seconds"] = timeout_seconds
+    return runtime
+
+
+def _openai_client_kwargs(provider_name: str) -> tuple[dict, dict]:
+    """Build OpenAI SDK kwargs and return them with validated runtime metadata."""
+    api_key = _get_api_key(provider_name)
+    runtime = _get_provider_runtime(provider_name)
+    kwargs = {
+        "base_url": _get_base_url(provider_name),
+        "api_key": api_key if api_key else "not-needed",
+    }
+    if "max_retries" in runtime:
+        kwargs["max_retries"] = runtime["max_retries"]
+    if "timeout_seconds" in runtime:
+        kwargs["timeout"] = runtime["timeout_seconds"]
+    return kwargs, runtime
+
+
 def get_model(role: str = "default", directory: str = "") -> str:
     resolved = _resolve_role(role, directory)
     return resolved.get("model", "gpt-4.1")
@@ -152,11 +231,9 @@ def get_client(role: str = "default", directory: str = ""):
         except ImportError:
             raise ImportError("pip install anthropic")
 
-    from openai import AsyncOpenAI
-    api_key = _get_api_key(provider_name)
-    base_url = _get_base_url(provider_name)
-    kwargs = {"base_url": base_url}
-    kwargs["api_key"] = api_key if api_key else "not-needed"
+    kwargs, runtime = _openai_client_kwargs(provider_name)
+    if provider_name == "openfang" and runtime["fail_closed"]:
+        return AsyncOpenFangClient(**kwargs)
     return AsyncOpenAI(**kwargs)
 
 
@@ -173,23 +250,25 @@ def get_client_sync(role: str = "default", directory: str = ""):
         except ImportError:
             raise ImportError("pip install anthropic")
 
-    from openai import OpenAI
-    api_key = _get_api_key(provider_name)
-    base_url = _get_base_url(provider_name)
-    kwargs = {"base_url": base_url}
-    kwargs["api_key"] = api_key if api_key else "not-needed"
+    kwargs, runtime = _openai_client_kwargs(provider_name)
+    if provider_name == "openfang" and runtime["fail_closed"]:
+        return OpenFangClient(**kwargs)
     return OpenAI(**kwargs)
 
 
 def get_provider_info(role: str = "default", directory: str = "") -> dict:
     resolved = _resolve_role(role, directory)
     provider_name = resolved.get("provider", "openai")
+    runtime = _get_provider_runtime(provider_name)
     return {
         "provider": provider_name,
         "model": resolved.get("model", "gpt-4.1"),
         "temperature": resolved.get("temperature", 0),
         "base_url": _get_base_url(provider_name),
         "type": _get_provider_type(provider_name),
+        "fail_closed": runtime["fail_closed"],
+        "max_retries": runtime.get("max_retries"),
+        "timeout_seconds": runtime.get("timeout_seconds"),
     }
 
 
@@ -255,7 +334,6 @@ def get_embedding_model(role: str = "default", device: str = "auto"):
         # Override the client with the embedding-specific provider
         cfg = _load_config()
         provider = cfg.get("providers", {}).get(provider_name, {})
-        from openai import OpenAI
         api_key = _get_api_key(provider_name) or "not-needed"
         base_url = provider.get("base_url", "https://api.openai.com/v1")
         emb_client = OpenAI(api_key=api_key, base_url=base_url)
