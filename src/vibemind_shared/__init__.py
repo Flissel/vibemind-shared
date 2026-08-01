@@ -1,6 +1,7 @@
 """VibeMind Shared — Multi-provider LLM client factory for the VibeMind OS ecosystem."""
 
 from .llm_client import (
+    OpenFangUnavailable,
     get_client,
     get_client_sync,
     get_config,
@@ -54,6 +55,7 @@ from .paths import (
 
 __version__ = "0.5.0"
 __all__ = [
+    "OpenFangUnavailable",
     "get_client",
     "get_client_sync",
     "get_config",

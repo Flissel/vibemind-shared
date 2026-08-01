@@ -30,6 +30,7 @@ TEST_CONFIG = """
 keys:
   openai: ${TEST_OPENAI_KEY}
   anthropic: ${TEST_ANTHROPIC_KEY}
+  openfang: ${TEST_OPENFANG_KEY}
   ollama: null
 
 providers:
@@ -41,6 +42,13 @@ providers:
     type: anthropic
     base_url: https://api.anthropic.com
     key_ref: anthropic
+  openfang:
+    type: openai
+    base_url: http://127.0.0.1:4200/v1
+    key_ref: openfang
+    fail_closed: true
+    max_retries: 3
+    timeout_seconds: 8
   ollama:
     type: openai
     base_url: http://127.0.0.1:11434/v1
@@ -64,6 +72,10 @@ roles:
     provider: openai
     model: gpt-4o-realtime-preview
     temperature: 0.8
+  brain_planning:
+    provider: openfang
+    model: openfang:brain-orchestrator
+    temperature: 0.3
 
 overrides:
   the_brain:
@@ -92,6 +104,7 @@ def setup_test_config(tmp_path, monkeypatch):
     monkeypatch.setenv("VIBEMIND_CONFIG_DIR", str(tmp_path))
     monkeypatch.setenv("TEST_OPENAI_KEY", "sk-test-openai")
     monkeypatch.setenv("TEST_ANTHROPIC_KEY", "sk-ant-test")
+    monkeypatch.setenv("TEST_OPENFANG_KEY", "openfang-test-token")
 
     # Clear the lru_cache so each test gets a fresh load
     from vibemind_shared import llm_client
@@ -192,6 +205,73 @@ def test_get_client_sync():
     client = get_client_sync("voice_realtime")
     cls_name = client.__class__.__name__
     assert "OpenAI" in cls_name
+
+
+def test_openfang_client_is_fail_closed_with_bounded_sdk_retries():
+    pytest.importorskip("openai")
+    from vibemind_shared import get_client, get_provider_info
+
+    client = get_client("brain_planning")
+    info = get_provider_info("brain_planning")
+
+    assert client.__class__.__name__ == "AsyncOpenFangClient"
+    assert client.max_retries == 3
+    assert str(client.base_url) == "http://127.0.0.1:4200/v1/"
+    assert info["fail_closed"] is True
+    assert info["max_retries"] == 3
+    assert info["timeout_seconds"] == 8.0
+
+
+def test_openfang_transient_failure_raises_explicit_hard_error(monkeypatch):
+    asyncio = pytest.importorskip("asyncio")
+    httpx = pytest.importorskip("httpx")
+    openai = pytest.importorskip("openai")
+    from vibemind_shared import OpenFangUnavailable, get_client
+
+    async def fail_after_sdk_retries(self, *args, **kwargs):
+        raise openai.APIConnectionError(
+            message="connection refused",
+            request=httpx.Request("POST", "http://127.0.0.1:4200/v1/chat/completions"),
+        )
+
+    monkeypatch.setattr(openai.AsyncOpenAI, "request", fail_after_sdk_retries)
+    client = get_client("brain_planning")
+
+    with pytest.raises(
+        OpenFangUnavailable,
+        match="OpenFang unreachable — LLM calls suspended",
+    ):
+        asyncio.run(client.request(object, object()))
+
+
+def test_openfang_sync_transient_failure_raises_explicit_hard_error(monkeypatch):
+    httpx = pytest.importorskip("httpx")
+    openai = pytest.importorskip("openai")
+    from vibemind_shared import OpenFangUnavailable, get_client_sync
+
+    def fail_after_sdk_retries(self, *args, **kwargs):
+        raise openai.APIConnectionError(
+            message="connection refused",
+            request=httpx.Request("POST", "http://127.0.0.1:4200/v1/chat/completions"),
+        )
+
+    monkeypatch.setattr(openai.OpenAI, "request", fail_after_sdk_retries)
+    client = get_client_sync("brain_planning")
+
+    with pytest.raises(
+        OpenFangUnavailable,
+        match="OpenFang unreachable — LLM calls suspended",
+    ):
+        client.request(object, object())
+
+
+def test_declared_direct_provider_is_not_wrapped_as_openfang():
+    pytest.importorskip("openai")
+    from vibemind_shared import get_client_sync
+
+    client = get_client_sync("voice_realtime")
+
+    assert client.__class__.__name__ == "OpenAI"
 
 
 def test_embedding_default():
