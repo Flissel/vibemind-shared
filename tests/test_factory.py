@@ -53,6 +53,10 @@ providers:
     type: openai
     base_url: http://127.0.0.1:11434/v1
     key_ref: null
+  ollama_compat:
+    type: ollama
+    base_url: http://127.0.0.1:11434/v1
+    key_ref: null
 
 default:
   provider: ollama
@@ -93,6 +97,16 @@ embeddings:
     provider: openai
     model: text-embedding-3-large
     dim: 3072
+  openfang_large:
+    driver: openai
+    provider: openfang
+    model: text-embedding-3-large
+    dim: 3072
+  ollama_small:
+    driver: ollama
+    provider: ollama_compat
+    model: nomic-embed-text
+    dim: 768
 """
 
 
@@ -308,6 +322,57 @@ def test_embedding_openai_large():
     assert cfg["driver"] == "openai"
     assert cfg["provider"] == "openai"
     assert cfg["dim"] == 3072
+
+
+def test_embedding_openfang_uses_fail_closed_provider_client(monkeypatch):
+    """OpenFang embeddings reuse the configured sync-client transport path."""
+    pytest.importorskip("openai")
+    from vibemind_shared import get_embedding_model
+    from vibemind_shared import llm_client
+
+    def unexpected_default_client(*args, **kwargs):
+        raise AssertionError("embedding creation must not construct a default client")
+
+    monkeypatch.setattr(llm_client, "get_client_sync", unexpected_default_client)
+
+    model = get_embedding_model("openfang_large")
+
+    assert model._c.__class__.__name__ == "OpenFangClient"
+    assert model._c.max_retries == 3
+    assert str(model._c.base_url) == "http://127.0.0.1:4200/v1/"
+
+
+def test_embedding_openfang_transient_failure_raises_hard_error(monkeypatch):
+    """Embedding requests exhaust OpenFang retries before reporting failure."""
+    httpx = pytest.importorskip("httpx")
+    openai = pytest.importorskip("openai")
+    from vibemind_shared import OpenFangUnavailable, get_embedding_model
+
+    def fail_after_sdk_retries(self, *args, **kwargs):
+        raise openai.APIConnectionError(
+            message="connection refused",
+            request=httpx.Request("POST", "http://127.0.0.1:4200/v1/embeddings"),
+        )
+
+    monkeypatch.setattr(openai.OpenAI, "request", fail_after_sdk_retries)
+    model = get_embedding_model("openfang_large")
+
+    with pytest.raises(
+        OpenFangUnavailable,
+        match="OpenFang unreachable — LLM calls suspended",
+    ):
+        model._c.request(object, object())
+
+
+def test_embedding_ollama_provider_type_remains_openai_compatible():
+    """Ollama embedding roles retain the existing OpenAI SDK transport."""
+    pytest.importorskip("openai")
+    from vibemind_shared import get_embedding_model
+
+    model = get_embedding_model("ollama_small")
+
+    assert model._c.__class__.__name__ == "OpenAI"
+    assert str(model._c.base_url) == "http://127.0.0.1:11434/v1/"
 
 
 def test_embedding_unknown_role_falls_back():

@@ -276,6 +276,16 @@ def get_client_sync(role: str = "default", directory: str = ""):
         except ImportError:
             raise ImportError("pip install anthropic")
 
+    return _get_sync_openai_compatible_client(provider_name)
+
+
+def _get_sync_openai_compatible_client(provider_name: str) -> OpenAI:
+    """Create the configured sync OpenAI-compatible transport for a provider."""
+    if _get_provider_type(provider_name) not in {"openai", "ollama"}:
+        raise ValueError(
+            f"provider {provider_name!r} is not OpenAI-compatible"
+        )
+
     kwargs, runtime = _openai_client_kwargs(provider_name)
     if provider_name == "openfang" and runtime["fail_closed"]:
         return OpenFangClient(**kwargs)
@@ -356,11 +366,7 @@ def get_embedding_model(role: str = "default", device: str = "auto"):
     if driver in ("openai", "ollama"):
         # Return a thin wrapper that exposes .encode(texts)
         provider_name = resolved.get("provider", driver)
-        client = get_client_sync(role="default")  # use default client for endpoint
-        # Override the client with the embedding-specific provider
-        api_key = _get_api_key(provider_name) or "not-needed"
-        base_url = _get_base_url(provider_name)
-        emb_client = OpenAI(api_key=api_key, base_url=base_url)
+        emb_client = _get_sync_openai_compatible_client(provider_name)
 
         class _EmbeddingWrapper:
             def __init__(self, client, model):
