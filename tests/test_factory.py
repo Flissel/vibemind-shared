@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import traceback
 from pathlib import Path
 
 import pytest
@@ -403,6 +404,58 @@ def test_openfang_key_prefers_direct_environment_value_over_secret_file(monkeypa
     assert _get_api_key("openfang") == "direct-secret"
 
 
+def test_openfang_whitespace_environment_value_uses_trimmed_secret_file(monkeypatch, tmp_path):
+    """Whitespace-only direct values are unusable and must not shadow NAME_FILE."""
+    from vibemind_shared.llm_client import _get_api_key
+
+    secret_file = tmp_path / "openfang-secret"
+    secret_file.write_text("  file-secret\n", encoding="utf-8")
+    monkeypatch.setenv("OPENFANG_API_KEY", " \t")
+    monkeypatch.setenv("OPENFANG_API_KEY_FILE", str(secret_file))
+
+    assert _get_api_key("openfang") == "file-secret"
+
+
+def test_openfang_whitespace_environment_value_without_file_fails_closed(monkeypatch):
+    """Whitespace alone must not reach the SDK's not-needed fallback."""
+    from vibemind_shared.llm_client import _get_api_key
+
+    monkeypatch.setenv("OPENFANG_API_KEY", " \t")
+    monkeypatch.delenv("OPENFANG_API_KEY_FILE", raising=False)
+
+    with pytest.raises(ValueError, match="OpenFang API key is not configured"):
+        _get_api_key("openfang")
+
+
+def test_openfang_provider_without_key_ref_fails_before_sdk_kwargs(monkeypatch):
+    """A malformed OpenFang provider cannot inherit the SDK's not-needed key."""
+    from vibemind_shared import llm_client
+
+    def config_without_openfang_key_ref():
+        return {
+            "keys": {},
+            "providers": {
+                "openfang": {
+                    "type": "openai",
+                    "base_url": "http://openfang.test/v1",
+                    "fail_closed": True,
+                }
+            },
+        }
+
+    config_without_openfang_key_ref.cache_clear = lambda: None
+    monkeypatch.setattr(
+        llm_client,
+        "_load_config",
+        config_without_openfang_key_ref,
+    )
+
+    with pytest.raises(ValueError, match="OpenFang API key is not configured") as exc_info:
+        llm_client._openai_client_kwargs("openfang")
+
+    assert "not-needed" not in str(exc_info.value)
+
+
 def test_placeholder_resolves_generic_named_secret_file_and_trims_whitespace(monkeypatch, tmp_path):
     """Any ${NAME} placeholder can opt into NAME_FILE without a path heuristic."""
     from vibemind_shared.llm_client import _resolve_env
@@ -447,6 +500,9 @@ def test_placeholder_secret_file_errors_are_redacted(monkeypatch, tmp_path, inva
     assert "OPENFANG_API_KEY" in message
     assert str(secret_file) not in message
     assert "never-log-this" not in message
+    rendered = "".join(traceback.format_exception(exc_info.type, exc_info.value, exc_info.tb))
+    assert str(secret_file) not in rendered
+    assert "never-log-this" not in rendered
 
 
 def test_openfang_key_missing_direct_and_file_values_fails_closed(monkeypatch):
