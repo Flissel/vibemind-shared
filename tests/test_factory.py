@@ -30,7 +30,7 @@ TEST_CONFIG = """
 keys:
   openai: ${TEST_OPENAI_KEY}
   anthropic: ${TEST_ANTHROPIC_KEY}
-  openfang: ${TEST_OPENFANG_KEY}
+  openfang: ${OPENFANG_API_KEY}
   ollama: null
 
 providers:
@@ -118,7 +118,7 @@ def setup_test_config(tmp_path, monkeypatch):
     monkeypatch.setenv("VIBEMIND_CONFIG_DIR", str(tmp_path))
     monkeypatch.setenv("TEST_OPENAI_KEY", "sk-test-openai")
     monkeypatch.setenv("TEST_ANTHROPIC_KEY", "sk-ant-test")
-    monkeypatch.setenv("TEST_OPENFANG_KEY", "openfang-test-token")
+    monkeypatch.setenv("OPENFANG_API_KEY", "openfang-test-token")
     monkeypatch.setenv("OPENFANG_URL", "http://127.0.0.1:4200")
 
     # Clear the lru_cache so each test gets a fresh load
@@ -389,6 +389,75 @@ def test_env_var_resolution():
     assert _get_api_key("anthropic") == "sk-ant-test"
     # ollama has key_ref=null
     assert _get_api_key("ollama") == ""
+
+
+def test_openfang_key_prefers_direct_environment_value_over_secret_file(monkeypatch, tmp_path):
+    """A direct key remains compatible and wins over the file convention."""
+    from vibemind_shared.llm_client import _get_api_key
+
+    secret_file = tmp_path / "openfang-secret"
+    secret_file.write_text("file-secret", encoding="utf-8")
+    monkeypatch.setenv("OPENFANG_API_KEY", "direct-secret")
+    monkeypatch.setenv("OPENFANG_API_KEY_FILE", str(secret_file))
+
+    assert _get_api_key("openfang") == "direct-secret"
+
+
+def test_placeholder_resolves_generic_named_secret_file_and_trims_whitespace(monkeypatch, tmp_path):
+    """Any ${NAME} placeholder can opt into NAME_FILE without a path heuristic."""
+    from vibemind_shared.llm_client import _resolve_env
+
+    secret_file = tmp_path / "generic-secret"
+    secret_file.write_text("  file-secret\n", encoding="utf-8")
+    monkeypatch.delenv("TEST_GENERIC_KEY", raising=False)
+    monkeypatch.setenv("TEST_GENERIC_KEY_FILE", str(secret_file))
+
+    assert _resolve_env("${TEST_GENERIC_KEY}") == "file-secret"
+
+
+@pytest.mark.parametrize("invalid_file", ["missing", "directory", "empty", "unreadable"])
+def test_placeholder_secret_file_errors_are_redacted(monkeypatch, tmp_path, invalid_file):
+    """Invalid explicit secret files fail closed without exposing their location or value."""
+    from vibemind_shared.llm_client import _resolve_env
+
+    secret_file = tmp_path / "top-secret-value"
+    if invalid_file == "directory":
+        secret_file.mkdir()
+    elif invalid_file == "empty":
+        secret_file.write_text("\n\t", encoding="utf-8")
+    elif invalid_file == "unreadable":
+        secret_file.write_text("never-log-this", encoding="utf-8")
+
+        def fail_read(self, *args, **kwargs):
+            raise PermissionError("never-log-this")
+
+        monkeypatch.setattr(Path, "read_text", fail_read)
+    elif invalid_file == "missing":
+        secret_file = tmp_path / "missing-secret"
+    else:  # pragma: no cover - defensive guard for parametrization edits
+        raise AssertionError(f"unexpected invalid file case: {invalid_file}")
+
+    monkeypatch.delenv("OPENFANG_API_KEY", raising=False)
+    monkeypatch.setenv("OPENFANG_API_KEY_FILE", str(secret_file))
+
+    with pytest.raises(ValueError) as exc_info:
+        _resolve_env("${OPENFANG_API_KEY}")
+
+    message = str(exc_info.value)
+    assert "OPENFANG_API_KEY" in message
+    assert str(secret_file) not in message
+    assert "never-log-this" not in message
+
+
+def test_openfang_key_missing_direct_and_file_values_fails_closed(monkeypatch):
+    """OpenFang must not reach the SDK's not-needed key fallback."""
+    from vibemind_shared.llm_client import _get_api_key
+
+    monkeypatch.delenv("OPENFANG_API_KEY", raising=False)
+    monkeypatch.delenv("OPENFANG_API_KEY_FILE", raising=False)
+
+    with pytest.raises(ValueError, match="OpenFang API key is not configured"):
+        _get_api_key("openfang")
 
 
 # =============================================================================

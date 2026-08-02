@@ -108,12 +108,33 @@ def _find_config() -> Path:
 
 
 def _resolve_env(value):
-    """Resolve ${ENV_VAR} references in config values."""
+    """Resolve ${ENV_VAR} references, optionally from explicit *_FILE values."""
     if not isinstance(value, str):
         return value
     pattern = re.compile(r"\$\{(\w+)\}")
+
     def replacer(match):
-        return os.environ.get(match.group(1), "")
+        name = match.group(1)
+        direct_value = os.environ.get(name)
+        if direct_value:
+            return direct_value
+
+        file_value = os.environ.get(f"{name}_FILE")
+        if not file_value:
+            return direct_value or ""
+
+        try:
+            secret_path = Path(file_value)
+            if not secret_path.is_file():
+                raise ValueError(f"secret file for {name} is unavailable")
+            secret_value = secret_path.read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            raise ValueError(f"secret file for {name} is unavailable") from exc
+
+        if not secret_value:
+            raise ValueError(f"secret file for {name} is empty")
+        return secret_value
+
     return pattern.sub(replacer, value)
 
 
@@ -159,7 +180,10 @@ def _get_api_key(provider_name: str) -> str:
         return ""
     keys = cfg.get("keys", {})
     raw = keys.get(key_ref, "")
-    return _resolve_env(raw) if raw else ""
+    api_key = _resolve_env(raw) if raw else ""
+    if provider_name == "openfang" and not api_key:
+        raise ValueError("OpenFang API key is not configured")
+    return api_key
 
 
 def _get_base_url(provider_name: str) -> str:
