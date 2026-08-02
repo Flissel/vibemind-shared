@@ -26,6 +26,7 @@ import os
 import re
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlparse
 
 import yaml
 from dotenv import load_dotenv
@@ -164,7 +165,32 @@ def _get_api_key(provider_name: str) -> str:
 def _get_base_url(provider_name: str) -> str:
     cfg = _load_config()
     provider = cfg.get("providers", {}).get(provider_name, {})
-    return provider.get("base_url", "https://api.openai.com/v1")
+    raw_base_url = provider.get("base_url")
+    if not isinstance(raw_base_url, str) or not raw_base_url.strip():
+        raise ValueError(f"provider {provider_name!r} requires a non-empty base_url")
+
+    missing_env = [
+        name
+        for name in re.findall(r"\$\{(\w+)\}", raw_base_url)
+        if not os.environ.get(name)
+    ]
+    if missing_env:
+        raise ValueError(
+            f"provider {provider_name!r} base_url requires environment variable(s): "
+            + ", ".join(missing_env)
+        )
+
+    base_url = _resolve_env(raw_base_url).strip()
+    parsed = urlparse(base_url)
+    if (
+        any(character.isspace() for character in base_url)
+        or parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+    ):
+        raise ValueError(
+            f"provider {provider_name!r} base_url must be an absolute HTTP(S) URL"
+        )
+    return base_url
 
 
 def _get_provider_type(provider_name: str) -> str:
@@ -332,10 +358,8 @@ def get_embedding_model(role: str = "default", device: str = "auto"):
         provider_name = resolved.get("provider", driver)
         client = get_client_sync(role="default")  # use default client for endpoint
         # Override the client with the embedding-specific provider
-        cfg = _load_config()
-        provider = cfg.get("providers", {}).get(provider_name, {})
         api_key = _get_api_key(provider_name) or "not-needed"
-        base_url = provider.get("base_url", "https://api.openai.com/v1")
+        base_url = _get_base_url(provider_name)
         emb_client = OpenAI(api_key=api_key, base_url=base_url)
 
         class _EmbeddingWrapper:

@@ -44,7 +44,7 @@ providers:
     key_ref: anthropic
   openfang:
     type: openai
-    base_url: http://127.0.0.1:4200/v1
+    base_url: ${OPENFANG_URL}/v1
     key_ref: openfang
     fail_closed: true
     max_retries: 3
@@ -105,6 +105,7 @@ def setup_test_config(tmp_path, monkeypatch):
     monkeypatch.setenv("TEST_OPENAI_KEY", "sk-test-openai")
     monkeypatch.setenv("TEST_ANTHROPIC_KEY", "sk-ant-test")
     monkeypatch.setenv("TEST_OPENFANG_KEY", "openfang-test-token")
+    monkeypatch.setenv("OPENFANG_URL", "http://127.0.0.1:4200")
 
     # Clear the lru_cache so each test gets a fresh load
     from vibemind_shared import llm_client
@@ -220,6 +221,25 @@ def test_openfang_client_is_fail_closed_with_bounded_sdk_retries():
     assert info["fail_closed"] is True
     assert info["max_retries"] == 3
     assert info["timeout_seconds"] == 8.0
+
+
+def test_openfang_base_url_resolves_environment_reference():
+    """Provider endpoints expand env references before constructing clients."""
+    from vibemind_shared import get_provider_info
+
+    info = get_provider_info("brain_planning")
+
+    assert info["base_url"] == "http://127.0.0.1:4200/v1"
+
+
+def test_openfang_base_url_missing_environment_reference_fails_closed(monkeypatch):
+    """An unresolved OpenFang endpoint must not fall back to a cloud URL."""
+    from vibemind_shared import get_client
+
+    monkeypatch.delenv("OPENFANG_URL")
+
+    with pytest.raises(ValueError, match="OPENFANG_URL"):
+        get_client("brain_planning")
 
 
 def test_openfang_transient_failure_raises_explicit_hard_error(monkeypatch):
