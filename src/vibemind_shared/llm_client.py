@@ -281,7 +281,7 @@ def get_client_sync(role: str = "default", directory: str = ""):
 
 def _get_sync_openai_compatible_client(provider_name: str) -> OpenAI:
     """Create the configured sync OpenAI-compatible transport for a provider."""
-    if _get_provider_type(provider_name) != "openai":
+    if _get_provider_type(provider_name) not in {"openai", "ollama"}:
         raise ValueError(
             f"provider {provider_name!r} is not OpenAI-compatible"
         )

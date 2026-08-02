@@ -53,6 +53,10 @@ providers:
     type: openai
     base_url: http://127.0.0.1:11434/v1
     key_ref: null
+  ollama_compat:
+    type: ollama
+    base_url: http://127.0.0.1:11434/v1
+    key_ref: null
 
 default:
   provider: ollama
@@ -98,6 +102,11 @@ embeddings:
     provider: openfang
     model: text-embedding-3-large
     dim: 3072
+  ollama_small:
+    driver: ollama
+    provider: ollama_compat
+    model: nomic-embed-text
+    dim: 768
 """
 
 
@@ -353,6 +362,17 @@ def test_embedding_openfang_transient_failure_raises_hard_error(monkeypatch):
         match="OpenFang unreachable — LLM calls suspended",
     ):
         model._c.request(object, object())
+
+
+def test_embedding_ollama_provider_type_remains_openai_compatible():
+    """Ollama embedding roles retain the existing OpenAI SDK transport."""
+    pytest.importorskip("openai")
+    from vibemind_shared import get_embedding_model
+
+    model = get_embedding_model("ollama_small")
+
+    assert model._c.__class__.__name__ == "OpenAI"
+    assert str(model._c.base_url) == "http://127.0.0.1:11434/v1/"
 
 
 def test_embedding_unknown_role_falls_back():
