@@ -493,6 +493,130 @@ def test_embedding_wrapper_preserves_configured_3072_dimension(monkeypatch):
     assert model.encode(["fungus query"]).shape == (1, 3072)
 
 
+def test_sentence_transformer_single_string_preserves_1d_shape(monkeypatch):
+    """Single-text SentenceTransformer callers keep their 1-D vector shape."""
+    import sys
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from vibemind_shared import get_embedding_model
+
+    class FakeSentenceTransformer:
+        def __init__(self, model, device):
+            assert model == "all-MiniLM-L6-v2"
+            assert device == "cpu"
+
+        def encode(self, texts, **kwargs):
+            assert texts == "security document"
+            return np.zeros(384, dtype=np.float32)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        SimpleNamespace(SentenceTransformer=FakeSentenceTransformer),
+    )
+
+    model = get_embedding_model("default", device="cpu", expected_dim=384)
+    vector = model.encode("security document")
+
+    assert vector.shape == (384,)
+
+
+def test_sentence_transformer_batch_preserves_2d_shape(monkeypatch):
+    """Batch SentenceTransformer callers keep their 2-D vector shape."""
+    import sys
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from vibemind_shared import get_embedding_model
+
+    class FakeSentenceTransformer:
+        def __init__(self, model, device):
+            assert model == "all-MiniLM-L6-v2"
+            assert device == "cpu"
+
+        def encode(self, texts, **kwargs):
+            assert texts == ["first", "second"]
+            return np.zeros((2, 384), dtype=np.float32)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        SimpleNamespace(SentenceTransformer=FakeSentenceTransformer),
+    )
+
+    model = get_embedding_model("default", device="cpu", expected_dim=384)
+    vectors = model.encode(["first", "second"])
+
+    assert vectors.shape == (2, 384)
+
+
+def test_openfang_embedding_request_preserves_supported_shape(monkeypatch):
+    """OpenFang keeps its current model/input-only request contract."""
+    from types import SimpleNamespace
+
+    from vibemind_shared import get_embedding_model
+    from vibemind_shared import llm_client
+
+    received = {}
+
+    class FakeEmbeddings:
+        def create(self, **kwargs):
+            received.update(kwargs)
+            return SimpleNamespace(
+                data=[SimpleNamespace(embedding=[0.0] * 384)]
+            )
+
+    class FakeClient:
+        embeddings = FakeEmbeddings()
+
+    monkeypatch.setattr(
+        llm_client, "_get_sync_openai_compatible_client", lambda provider: FakeClient()
+    )
+
+    model = get_embedding_model("openfang_large", expected_dim=384)
+
+    assert model.encode(["security document"]).shape == (1, 384)
+    assert received == {
+        "model": "text-embedding-3-large",
+        "input": ["security document"],
+    }
+
+
+def test_ollama_embedding_request_omits_unsupported_dimensions(monkeypatch):
+    """Ollama remains compatible while its output is still dimension-validated."""
+    from types import SimpleNamespace
+
+    from vibemind_shared import get_embedding_model
+    from vibemind_shared import llm_client
+
+    received = {}
+
+    class FakeEmbeddings:
+        def create(self, **kwargs):
+            received.update(kwargs)
+            return SimpleNamespace(
+                data=[SimpleNamespace(embedding=[0.0] * 768)]
+            )
+
+    class FakeClient:
+        embeddings = FakeEmbeddings()
+
+    monkeypatch.setattr(
+        llm_client, "_get_sync_openai_compatible_client", lambda provider: FakeClient()
+    )
+
+    model = get_embedding_model("ollama_small", expected_dim=768)
+
+    assert model.encode(["local document"]).shape == (1, 768)
+    assert received == {
+        "model": "nomic-embed-text",
+        "input": ["local document"],
+    }
+
+
 def test_embedding_ollama_provider_type_remains_openai_compatible():
     """Ollama embedding roles retain the existing OpenAI SDK transport."""
     pytest.importorskip("openai")

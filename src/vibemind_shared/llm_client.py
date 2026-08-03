@@ -378,8 +378,18 @@ class _DimensionCheckedEmbeddingModel:
         try:
             if len(vectors) == 0:
                 raise ValueError("malformed embedding response")
+            first = vectors[0]
         except TypeError:
             raise ValueError("malformed embedding response") from None
+
+        try:
+            len(first)
+        except TypeError:
+            if len(vectors) != self._expected_dim:
+                raise ValueError(
+                    f"expected dimension {self._expected_dim}, got {len(vectors)}"
+                )
+            return
 
         for vector in vectors:
             try:
