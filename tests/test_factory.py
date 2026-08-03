@@ -365,6 +365,134 @@ def test_embedding_openfang_transient_failure_raises_hard_error(monkeypatch):
         model._c.request(object, object())
 
 
+def test_embedding_wrapper_enforces_callers_exact_dimension(monkeypatch):
+    """Callers can require 384-D vectors before receiving an embedding."""
+    from types import SimpleNamespace
+
+    from vibemind_shared import get_embedding_model
+    from vibemind_shared import llm_client
+
+    class FakeEmbeddings:
+        def create(self, **kwargs):
+            return SimpleNamespace(
+                data=[SimpleNamespace(embedding=[0.0] * 384)]
+            )
+
+    class FakeClient:
+        embeddings = FakeEmbeddings()
+
+    monkeypatch.setattr(
+        llm_client, "_get_sync_openai_compatible_client", lambda provider: FakeClient()
+    )
+
+    model = get_embedding_model("openfang_large", expected_dim=384)
+
+    assert model.encode(["security document"]).shape == (1, 384)
+
+
+def test_embedding_wrapper_rejects_wrong_dimension_without_fallback(monkeypatch):
+    """A mismatched response is rejected instead of selecting another provider/model."""
+    from types import SimpleNamespace
+
+    from vibemind_shared import get_embedding_model
+    from vibemind_shared import llm_client
+
+    class FakeEmbeddings:
+        def create(self, **kwargs):
+            return SimpleNamespace(
+                data=[SimpleNamespace(embedding=[0.0] * 383)]
+            )
+
+    class FakeClient:
+        embeddings = FakeEmbeddings()
+
+    monkeypatch.setattr(
+        llm_client, "_get_sync_openai_compatible_client", lambda provider: FakeClient()
+    )
+
+    model = get_embedding_model("openfang_large", expected_dim=384)
+
+    with pytest.raises(ValueError, match="expected dimension 384, got 383"):
+        model.encode(["security document"])
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        object(),
+        type("MissingEmbedding", (), {"data": [object()]})(),
+        type("NoneEmbedding", (), {"data": [type("Entry", (), {"embedding": None})()]})(),
+    ],
+)
+def test_embedding_wrapper_rejects_malformed_response(monkeypatch, response):
+    """Missing or malformed embedding output is never passed to the caller."""
+    from vibemind_shared import get_embedding_model
+    from vibemind_shared import llm_client
+
+    class FakeEmbeddings:
+        def create(self, **kwargs):
+            return response
+
+    class FakeClient:
+        embeddings = FakeEmbeddings()
+
+    monkeypatch.setattr(
+        llm_client, "_get_sync_openai_compatible_client", lambda provider: FakeClient()
+    )
+
+    model = get_embedding_model("openfang_large", expected_dim=384)
+
+    with pytest.raises(ValueError, match="malformed embedding response"):
+        model.encode(["security document"])
+
+
+def test_embedding_wrapper_preserves_openfang_unavailable_error(monkeypatch):
+    """Exhausted OpenFang transport failures keep the existing hard-error type."""
+    from vibemind_shared import OpenFangUnavailable, get_embedding_model
+    from vibemind_shared import llm_client
+
+    class FakeEmbeddings:
+        def create(self, **kwargs):
+            raise OpenFangUnavailable("OpenFang unreachable — LLM calls suspended")
+
+    class FakeClient:
+        embeddings = FakeEmbeddings()
+
+    monkeypatch.setattr(
+        llm_client, "_get_sync_openai_compatible_client", lambda provider: FakeClient()
+    )
+
+    model = get_embedding_model("openfang_large", expected_dim=384)
+
+    with pytest.raises(OpenFangUnavailable, match="OpenFang unreachable"):
+        model.encode(["security document"])
+
+
+def test_embedding_wrapper_preserves_configured_3072_dimension(monkeypatch):
+    """Existing OpenFang/fungus_search 3072-D embeddings remain valid."""
+    from types import SimpleNamespace
+
+    from vibemind_shared import get_embedding_model
+    from vibemind_shared import llm_client
+
+    class FakeEmbeddings:
+        def create(self, **kwargs):
+            return SimpleNamespace(
+                data=[SimpleNamespace(embedding=[0.0] * 3072)]
+            )
+
+    class FakeClient:
+        embeddings = FakeEmbeddings()
+
+    monkeypatch.setattr(
+        llm_client, "_get_sync_openai_compatible_client", lambda provider: FakeClient()
+    )
+
+    model = get_embedding_model("openfang_large")
+
+    assert model.encode(["fungus query"]).shape == (1, 3072)
+
+
 def test_embedding_ollama_provider_type_remains_openai_compatible():
     """Ollama embedding roles retain the existing OpenAI SDK transport."""
     pytest.importorskip("openai")
