@@ -359,7 +359,50 @@ def get_embedding_config(role: str = "default") -> dict:
     return _resolve_embedding_role(role)
 
 
-def get_embedding_model(role: str = "default", device: str = "auto"):
+class _DimensionCheckedEmbeddingModel:
+    """Validate every embedding result before it reaches a caller."""
+
+    def __init__(self, model, expected_dim: int):
+        self._model = model
+        self._expected_dim = expected_dim
+
+    def encode(self, texts, **kwargs):
+        vectors = self._model.encode(texts, **kwargs)
+        self._validate(vectors)
+        return vectors
+
+    def __getattr__(self, name):
+        return getattr(self._model, name)
+
+    def _validate(self, vectors) -> None:
+        try:
+            if len(vectors) == 0:
+                raise ValueError("malformed embedding response")
+            first = vectors[0]
+        except TypeError:
+            raise ValueError("malformed embedding response") from None
+
+        try:
+            len(first)
+        except TypeError:
+            if len(vectors) != self._expected_dim:
+                raise ValueError(
+                    f"expected dimension {self._expected_dim}, got {len(vectors)}"
+                )
+            return
+
+        for vector in vectors:
+            try:
+                actual_dim = len(vector)
+            except TypeError:
+                raise ValueError("malformed embedding response") from None
+            if actual_dim != self._expected_dim:
+                raise ValueError(
+                    f"expected dimension {self._expected_dim}, got {actual_dim}"
+                )
+
+
+def get_embedding_model(role: str = "default", device: str = "auto", expected_dim: int | None = None):
     """Return a loaded embedding model for the given role.
 
     Returns an object with `.encode(texts)` method, regardless of driver.
@@ -371,7 +414,13 @@ def get_embedding_model(role: str = "default", device: str = "auto"):
     resolved = _resolve_embedding_role(role)
     driver = resolved.get("driver", "sentence_transformers")
     model_name = resolved.get("model", "all-MiniLM-L6-v2")
-
+    expected_dim = get_embedding_dim(role) if expected_dim is None else expected_dim
+    if (
+        isinstance(expected_dim, bool)
+        or not isinstance(expected_dim, int)
+        or expected_dim <= 0
+    ):
+        raise ValueError("expected_dim must be a positive integer")
     if driver == "sentence_transformers":
         try:
             from sentence_transformers import SentenceTransformer
@@ -387,7 +436,9 @@ def get_embedding_model(role: str = "default", device: str = "auto"):
                 device = "cuda" if torch.cuda.is_available() else "cpu"
             except ImportError:
                 device = "cpu"
-        return SentenceTransformer(model_name, device=device)
+        return _DimensionCheckedEmbeddingModel(
+            SentenceTransformer(model_name, device=device), expected_dim
+        )
 
     if driver in ("openai", "ollama"):
         # Return a thin wrapper that exposes .encode(texts)
@@ -403,10 +454,19 @@ def get_embedding_model(role: str = "default", device: str = "auto"):
                 if isinstance(texts, str):
                     texts = [texts]
                 resp = self._c.embeddings.create(model=self._m, input=texts)
-                import numpy as np
-                return np.array([d.embedding for d in resp.data], dtype=np.float32)
+                try:
+                    entries = resp.data
+                    vectors = [entry.embedding for entry in entries]
+                    if not vectors or any(vector is None for vector in vectors):
+                        raise ValueError("malformed embedding response")
+                    import numpy as np
+                    return np.array(vectors, dtype=np.float32)
+                except (AttributeError, TypeError, ValueError):
+                    raise ValueError("malformed embedding response") from None
 
-        return _EmbeddingWrapper(emb_client, model_name)
+        return _DimensionCheckedEmbeddingModel(
+            _EmbeddingWrapper(emb_client, model_name), expected_dim
+        )
 
     raise ValueError(f"Unknown embedding driver: {driver}")
 
