@@ -12,6 +12,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+import vibemind_shared
 from vibemind_shared.contracts import (
     ContractValidationError,
     validate_brain_openfang_handoff_bundle,
@@ -90,6 +91,12 @@ def test_runtime_metadata_declares_requests_for_public_package_import() -> None:
     metadata = tomllib.loads(pyproject.read_text(encoding="utf-8"))
     dependencies = metadata["project"]["dependencies"]
     assert "requests>=2.31,<3" in dependencies
+
+
+def test_project_metadata_version_matches_module_version() -> None:
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    metadata = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    assert metadata["project"]["version"] == vibemind_shared.__version__
 
 
 @pytest.mark.parametrize("field_name", ("correlation_id", "plan_id", "lifecycle_revision", "brain_task_node_id", "space_id", "roles"))
