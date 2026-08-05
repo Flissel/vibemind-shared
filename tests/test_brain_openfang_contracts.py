@@ -87,6 +87,14 @@ def test_resources_match_manifest_and_outer_provenance() -> None:
         assert hashlib.sha256(content).hexdigest() == expected_digest
 
 
+def test_provenance_resources_are_locked_to_lf_checkout_bytes() -> None:
+    attributes = Path(__file__).resolve().parents[1] / ".gitattributes"
+    assert attributes.read_text(encoding="utf-8").splitlines() == [
+        "src/vibemind_shared/contracts/schema-manifest-v1.json text eol=lf",
+        "src/vibemind_shared/contracts/schemas/*.json text eol=lf",
+    ]
+
+
 def test_runtime_metadata_declares_requests_for_public_package_import() -> None:
     pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
     metadata = tomllib.loads(pyproject.read_text(encoding="utf-8"))
