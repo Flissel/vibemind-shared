@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:vibemind:shared:contracts:brain-plan:v1",
+  "title": "BrainPlanV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "plan_id", "intent", "participating_spaces", "tasks"],
+  "properties": {
+    "contract_version": {"const": "v1"},
+    "plan_id": {"$ref": "#/$defs/planId"},
+    "intent": {"$ref": "#/$defs/intent"},
+    "participating_spaces": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/participatingSpace"}
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/taskNode"}
+    }
+  },
+  "$defs": {
+    "planId": {
+      "type": "string",
+      "pattern": "^plan_v1_[0-9A-HJKMNPQRSTVWXYZ]{26}$"
+    },
+    "spaceId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,62}$"
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "context", "requested_by"],
+      "properties": {
+        "summary": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "context": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1, "maxLength": 4000}
+        },
+        "requested_by": {"type": "string", "minLength": 1, "maxLength": 200}
+      }
+    },
+    "participatingSpace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["space_id", "roles"],
+      "properties": {
+        "space_id": {"$ref": "#/$defs/spaceId"},
+        "roles": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/roleRequirement"}
+        }
+      }
+    },
+    "roleRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "required_agent_count"],
+      "properties": {
+        "role": {"type": "string", "minLength": 1, "maxLength": 200},
+        "required_agent_count": {"type": "integer", "minimum": 1, "maximum": 1000}
+      }
+    },
+    "taskNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id", "order", "summary", "space_ids", "depends_on", "success_criteria", "evidence_requirements"],
+      "properties": {
+        "node_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$"},
+        "order": {"type": "integer", "minimum": 1},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "space_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/spaceId"},
+          "uniqueItems": true
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$"},
+          "uniqueItems": true
+        },
+        "success_criteria": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1, "maxLength": 4000}
+        },
+        "evidence_requirements": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/evidenceRequirement"}
+        }
+      }
+    },
+    "evidenceRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_type", "description"],
+      "properties": {
+        "evidence_type": {
+          "enum": ["test-result", "artifact", "log", "external-record", "human-attestation"]
+        },
+        "description": {"type": "string", "minLength": 1, "maxLength": 4000}
+      }
+    }
+  }
+}

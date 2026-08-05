@@ -4,16 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vibemind-shared"
-version = "0.1.0"
+version = "0.6.0"
 description = "Shared LLM client factory for VibeMind OS ecosystem"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [{name = "Felix Baumann"}]
 dependencies = [
+    "jsonschema>=4.18,<5",
     "openai>=1.0.0",
     "pyyaml>=6.0",
     "python-dotenv>=1.0.0",
+    "rfc3339-validator>=0.1.4,<1",
+    "requests>=2.31,<3",
 ]
 
 [project.optional-dependencies]
@@ -22,3 +25,6 @@ all = ["anthropic>=0.20.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"vibemind_shared.contracts" = ["schema-manifest-v1.json", "schemas/*.json"]

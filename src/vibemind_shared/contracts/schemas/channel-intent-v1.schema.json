@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:vibemind:shared:contracts:channel-intent:v1",
+  "title": "ChannelIntentV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "correlation_id",
+    "channel_kind",
+    "actor_context",
+    "session_context",
+    "message",
+    "received_at",
+    "user_facing_expectations"
+  ],
+  "properties": {
+    "contract_version": {"const": "v1"},
+    "correlation_id": {"$ref": "#/$defs/sharedV1Id"},
+    "channel_kind": {"enum": ["voice", "desktop-chat", "openclaw", "space-chat"]},
+    "actor_context": {"$ref": "#/$defs/actorContext"},
+    "session_context": {"$ref": "#/$defs/sessionContext"},
+    "message": {"type": "string", "minLength": 1, "maxLength": 4000},
+    "received_at": {"type": "string", "format": "date-time"},
+    "requested_space_id": {"$ref": "#/$defs/spaceId"},
+    "user_facing_expectations": {"$ref": "#/$defs/userFacingExpectations"}
+  },
+  "$defs": {
+    "sharedV1Id": {
+      "type": "string",
+      "pattern": "^(?:task|event|evidence|handoff|todo|approval|plan)_v1_[0-9A-HJKMNPQRSTVWXYZ]{26}$"
+    },
+    "spaceId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,62}$"
+    },
+    "actorContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor_id"],
+      "properties": {
+        "actor_id": {"type": "string", "minLength": 1, "maxLength": 200},
+        "locale": {"type": "string", "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$"}
+      }
+    },
+    "sessionContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_id"],
+      "properties": {
+        "session_id": {"type": "string", "minLength": 1, "maxLength": 200},
+        "conversation_id": {"type": "string", "minLength": 1, "maxLength": 200}
+      }
+    },
+    "userFacingExpectations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reply", "evidence"],
+      "properties": {
+        "reply": {"enum": ["required", "optional", "not-requested"]},
+        "evidence": {"enum": ["not-requested", "summary", "references"]}
+      }
+    }
+  }
+}
