@@ -1,0 +1,10 @@
+{
+  "outer_commit": "f0001e40f306745f60818a5bbd3065377dacd443",
+  "schemas": {
+    "channel-intent-v1.schema.json": "c2e839018f9b5ed98d84088ce49769fc2584ce6354b65945542a55161e006a10",
+    "brain-plan-v1.schema.json": "488541303e51935a1b6d38d5fc9c666376bf8a743bd8dc26d046979b3162c632",
+    "space-execution-contract-v1.schema.json": "2b0ad853d80840488b83e4f88946531f059f39789e9cc85b4debff7efd526351",
+    "brain-plan-lifecycle-v1.schema.json": "efafbaa06b228e07b976d9ff293d244931af4cafdc694026d4c8dcbcdd66f1e3",
+    "brain-openfang-handoff-v1.schema.json": "e69afd00058af8f101aa60886f8cd26e9d3bd04979e0f67e0d9ed2968d6d2239"
+  }
+}

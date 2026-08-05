@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:vibemind:shared:contracts:space-execution-contract:v1",
+  "title": "SpaceExecutionContractV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "contract_id",
+    "space_id",
+    "executor_id",
+    "approval_policy_ref",
+    "cost_policy_ref",
+    "healthcheck_ref",
+    "golden_path_ref"
+  ],
+  "properties": {
+    "contract_version": {"const": "v1"},
+    "contract_id": {"$ref": "#/$defs/contractId"},
+    "space_id": {"$ref": "#/$defs/canonicalSpaceId"},
+    "executor_id": {"$ref": "#/$defs/executorId"},
+    "approval_policy_ref": {"$ref": "#/$defs/approvalPolicyRef"},
+    "cost_policy_ref": {"$ref": "#/$defs/costPolicyRef"},
+    "healthcheck_ref": {"$ref": "#/$defs/healthcheckRef"},
+    "golden_path_ref": {"$ref": "#/$defs/goldenPathRef"}
+  },
+  "$defs": {
+    "contractId": {
+      "type": "string",
+      "pattern": "^space_execution_contract_v1_[0-9A-HJKMNPQRSTVWXYZ]{26}$"
+    },
+    "canonicalSpaceId": {
+      "type": "string",
+      "enum": [
+        "bubbles",
+        "ideas",
+        "coding",
+        "desktop",
+        "research",
+        "rowboat",
+        "minibook",
+        "schedule",
+        "n8n",
+        "agentfarm",
+        "video",
+        "flowzen",
+        "mirofish"
+      ]
+    },
+    "executorId": {
+      "type": "string",
+      "pattern": "^executor:[a-z][a-z0-9-]{0,62}$"
+    },
+    "approvalPolicyRef": {
+      "type": "string",
+      "pattern": "^approval-policy:[a-z][a-z0-9-]{0,62}$"
+    },
+    "costPolicyRef": {
+      "type": "string",
+      "pattern": "^cost-policy:[a-z][a-z0-9-]{0,62}$"
+    },
+    "healthcheckRef": {
+      "type": "string",
+      "pattern": "^healthcheck:[a-z][a-z0-9-]{0,62}$"
+    },
+    "goldenPathRef": {
+      "type": "string",
+      "pattern": "^golden-path:[a-z][a-z0-9-]{0,62}$"
+    }
+  }
+}

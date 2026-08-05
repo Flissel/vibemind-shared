@@ -72,6 +72,22 @@ response = planner_client.chat.completions.create(
 )
 ```
 
+## Brain-to-OpenFang contract closure
+
+The provenance-bound, offline V1 handoff validator is available as a stable
+public import:
+
+```python
+from vibemind_shared.contracts import (
+    ContractValidationError,
+    validate_brain_openfang_handoff_bundle,
+)
+```
+
+It validates an admitted, `execution_deferred` Brain bundle and does not
+dispatch a runtime action or assert OpenFang execution success.  The five
+schemas and their outer-source digest manifest are packaged as wheel resources.
+
 ## Project Structure
 
 ```

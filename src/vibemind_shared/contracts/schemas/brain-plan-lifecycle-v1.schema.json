@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:vibemind:shared:contracts:brain-plan-lifecycle:v1",
+  "title": "BrainPlanLifecycleV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "correlation_id",
+    "plan_id",
+    "participating_space_ids",
+    "revision",
+    "status",
+    "updated_at",
+    "event_history"
+  ],
+  "properties": {
+    "contract_version": {"const": "v1"},
+    "correlation_id": {"$ref": "#/$defs/correlationId"},
+    "plan_id": {"$ref": "#/$defs/planId"},
+    "participating_space_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/canonicalSpaceId"}
+    },
+    "revision": {"type": "integer", "minimum": 1},
+    "status": {"$ref": "#/$defs/status"},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "event_history": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/lifecycleEvent"}
+    }
+  },
+  "$defs": {
+    "correlationId": {
+      "type": "string",
+      "pattern": "^(?:task|event|evidence|handoff|todo|approval|plan|request|job|result|trace|quote|artifact|citation|schedule|change|run|intent|project|workflow|definition|capability|log|source|repository|base|head|branch|commit|pr|worktree|test_profile|test_summary|checkpoint|cancellation|projection|delta|ledger|authority|session|receipt|checkin|recommendation|acceptance|subject)_v1_[0-9A-HJKMNPQRSTVWXYZ]{26}$"
+    },
+    "planId": {
+      "type": "string",
+      "pattern": "^plan_v1_[0-9A-HJKMNPQRSTVWXYZ]{26}$"
+    },
+    "canonicalSpaceId": {
+      "enum": [
+        "bubbles",
+        "ideas",
+        "coding",
+        "desktop",
+        "research",
+        "rowboat",
+        "minibook",
+        "schedule",
+        "n8n",
+        "agentfarm",
+        "video",
+        "flowzen",
+        "mirofish"
+      ]
+    },
+    "status": {
+      "enum": [
+        "planned",
+        "awaiting_clarification",
+        "admitted",
+        "execution_deferred",
+        "cancelled"
+      ]
+    },
+    "reasonCode": {
+      "enum": [
+        "clarification-required",
+        "admission-validated",
+        "execution-engine-deferred",
+        "user-cancelled",
+        "policy-cancelled",
+        "clarification-unresolved"
+      ]
+    },
+    "lifecycleEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "status", "occurred_at"],
+      "properties": {
+        "revision": {"type": "integer", "minimum": 1},
+        "status": {"$ref": "#/$defs/status"},
+        "reason_code": {"$ref": "#/$defs/reasonCode"},
+        "occurred_at": {"type": "string", "format": "date-time"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "planned"}}, "required": ["status"]},
+          "then": {"not": {"required": ["reason_code"]}}
+        },
+        {
+          "if": {"properties": {"status": {"const": "awaiting_clarification"}}, "required": ["status"]},
+          "then": {
+            "required": ["reason_code"],
+            "properties": {"reason_code": {"const": "clarification-required"}}
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "admitted"}}, "required": ["status"]},
+          "then": {
+            "required": ["reason_code"],
+            "properties": {"reason_code": {"const": "admission-validated"}}
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "execution_deferred"}}, "required": ["status"]},
+          "then": {
+            "required": ["reason_code"],
+            "properties": {"reason_code": {"const": "execution-engine-deferred"}}
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "cancelled"}}, "required": ["status"]},
+          "then": {
+            "required": ["reason_code"],
+            "properties": {
+              "reason_code": {
+                "enum": ["user-cancelled", "policy-cancelled", "clarification-unresolved"]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
