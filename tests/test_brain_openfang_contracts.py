@@ -17,6 +17,7 @@ from vibemind_shared.contracts import (
     ContractValidationError,
     validate_brain_openfang_handoff_bundle,
 )
+from vibemind_shared.contracts.brain_openfang import validate_document
 
 
 OUTER_COMMIT = "f0001e40f306745f60818a5bbd3065377dacd443"
@@ -91,6 +92,20 @@ def test_runtime_metadata_declares_requests_for_public_package_import() -> None:
     metadata = tomllib.loads(pyproject.read_text(encoding="utf-8"))
     dependencies = metadata["project"]["dependencies"]
     assert "requests>=2.31,<3" in dependencies
+
+
+def test_runtime_metadata_declares_rfc3339_date_time_checker() -> None:
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    metadata = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    dependencies = metadata["project"]["dependencies"]
+    assert "rfc3339-validator>=0.1.4,<1" in dependencies
+
+
+def test_rejects_malformed_channel_intent_date_time() -> None:
+    channel_intent, *_ = valid_bundle()
+    channel_intent["received_at"] = "not-a-date"
+    with pytest.raises(ContractValidationError):
+        validate_document("channel-intent", channel_intent)
 
 
 def test_project_metadata_version_matches_module_version() -> None:
